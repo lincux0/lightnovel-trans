@@ -51,7 +51,9 @@
 
 脚本和技能说明的验证不等同于多作品全译质量或 EPUB 跨阅读器兼容性验证。没有安装额外格式转换工具或 EPUBCheck。
 
-## 本地发布准备
+## 本地发布准备（发布前记录）
+
+以下记录描述 2026-10-06 准备完成时的状态；后续发布状态见 [GitHub Releases](https://github.com/lincux0/lightnovel-trans/releases)。
 
 - 仅该技能目录初始化 Git，保留原稿基线与脚本修复提交；父工作区的小说原文、译稿和成品不加入仓库。
 - `origin` 配置为 `https://github.com/lincux0/lightnovel-trans.git`，公开只读连接验证成功；没有推送、创建 PR、标签或 Release。

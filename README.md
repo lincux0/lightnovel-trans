@@ -19,7 +19,21 @@
 
 ## 安装与使用
 
-将本目录复制到支持 `SKILL.md` 的 Agent 的技能目录，并保留 `references/` 和 `scripts/`。例如 Codex 可放在用户技能目录 `~/.codex/skills/lightnovel-trans/`；Windows 对应 `%USERPROFILE%\.codex\skills\lightnovel-trans\`。以实际 Agent 的发现规则为准。
+从 [GitHub Releases](https://github.com/lincux0/lightnovel-trans/releases) 下载 `lightnovel-trans-skill.zip`，解压后将 `lightnovel-trans` 目录复制到支持 `SKILL.md` 的 Agent 的技能目录，保留 `references/` 和 `scripts/`。
+
+也可以用 Git 安装到 Codex 用户技能目录。目标目录应不存在：
+
+```sh
+# macOS / Linux
+git clone https://github.com/lincux0/lightnovel-trans.git ~/.codex/skills/lightnovel-trans
+```
+
+```powershell
+# Windows PowerShell
+git clone https://github.com/lincux0/lightnovel-trans.git "$env:USERPROFILE\.codex\skills\lightnovel-trans"
+```
+
+以实际 Agent 的技能发现规则为准。安装后在新会话中使用，或按所用 Agent 的方式重新加载技能。
 
 安装后可明确调用 `$lightnovel-trans`，例如：
 
