@@ -1,96 +1,72 @@
-# EPUB 回写与横排转换（技术细节）
+# EPUB 提取、回写与成品验证
 
-## 总原则
+仅在用户需要 EPUB 时使用。本包不附 EPUB 提取器或构建器；优先检查项目已有实现，再按输入实现必要适配。本流程主要适用于可重排、文字为主的 EPUB；固定版式或复杂图文先单独评估。
 
-- 只替换 XHTML 中的**文本**；不改 CSS、图片（字节原样）、content.opf、目录结构、链接、元素属性（id/class/href）。
-- 奥付（p-colophon / p-colophon2 / p-bookwalker）与版权声明不回写。
-- 所有替换与转换都要能被"差异范围白名单"验证（见下）。
+## 来源探测与提取
 
-## 提取器（extract_epub.py）关键设计
+- 从 `META-INF/container.xml` 查实际 OPF 路径，再按 manifest/spine 和导航确认阅读顺序。不能假定是 `OEBPS/content.opf`、`p-XXX.xhtml`、某个 CSS 文件或统一出版社模板。
+- 检查 EPUB 版本、可重排/固定版式、正文块、内联格式、图文、脚注、ruby、外字及语言。目录可能缺章或一个章节跨多个 XHTML，spine 顺序不能仅由目录替代。
+- 提取时记录源文件、块位置与内容类型，完整保存正文和翻译辅助信息。ruby 取底字作为正文，同时保留读音/特殊读法供判断；不能把 `rb` 和 `rt` 无区别拼接或丢掉特殊语义。
+- `tcy` 通常是排版包装，其文本仍是正文；强调、超链接、脚注锚点、外字图片不因是内联元素就删除。外字优先用经确认的字符或 alt 转为文字，没有可靠对应则保留引用并说明。
+- 插图独立记录位置和资源引用，图片文件默认原字节保留。图中文字是否翻译由任务范围决定；无法编辑时报告范围限制。
+- 原版始终只读。规范化后核对阅读顺序及内容覆盖，不以“提取器与回写器同样输出”替代对来源的独立抽查。
 
-- lxml 解析；`PARA_TAGS` 处理 p/h1-h6 等；`_inline` 抽取文本时剥离 ruby（取 rb/rt 文本、丢弃注音结构）、tcy、span。
-- 图片：正文插图以 `![illust](images/xxx)` 作为独立条目；嵌在 ruby 内的外字（gaiji）图片随注音剥离。
-- 段落一行一条；空段落以空行维持节奏；章节标题去重（正文首个标题与 section 标题一致时并入 md 的 `#` 标题行）。
-- 回写脚本复用同一解析逻辑（WBExtractor），并断言"解析结果与提取器完全一致"，保证 1:1 映射可靠。
+## 回写：最小但完整的变化
 
-## 回写（writeback_epub*.py）
+1. 以可靠的源块映射把译文写回对应元素，默认 1:1；允许拆并时用显式映射，不能依赖非空行索引强配。
+2. 保留链接、锚点、插图、强调及其他有意义的内联结构。只有确认无语义损失的纯排版/注音包装才可移除；不要对所有段落直接清空子元素。
+3. 翻译范围内的脚注、目录、导航和图片说明同步处理。奥付、版权声明等默认保留日文；按内容识别页面，不能根据某书商固定文件名决定跳过全部文本。
+4. 本次改动白名单同时包含文件和内容类型：正文、导航文本、布局样式、必要语言/元数据等。图片和其他未改资源字节一致，不要求 OPF 永远不变。
+5. 译文内容页设正确语言（如 `zh-CN`/`zh-TW`），保留日文页/片段仍使用 `ja`；阅读顺序、标识和原版出版信息不被误归为翻译版信息。
+6. 如需要排版转换，直接生成所需成品即可；保留竖排中间版是可选的检查便利，不是所有 EPUB 的必要阶段。
 
-1. 载入译文 md：`title = lines[0]`，`body = lines[1:]`。
-2. 对每个 section 的每个源文件：提取条目 → 过滤（空文本、首个与 section 同名标题去重）→ 与译文切片逐条对应 → `set_text(el, cn_text)`（清空子元素只设 text，从而移除 ruby/tcy）。
-3. 图片条目、脚注条目保持原样；标题去重条目写为中文标题。
-4. 断言：译文消费数 == md 段落总数；解析结果与提取器一致。
-5. 特殊页：
-   - `p-caution.xhtml`：版权提示三句（缩略图说明 / 排版说明 / 阅读器差异说明）；
-   - `p-001.xhtml`：插画师署名（口絵・本文イラスト 平つくね → 彩页・正文插画 平つくね）；
-   - `p-toc-002.xhtml`：目录链接文字（href → 中文标签映射）；
-   - `nav.xhtml` / `toc.ncx`：导航标签映射（含 landmarks：封面/正文）。
-6. 重建 zip：`mimetype` 首个且 STORED，其余 DEFLATED；未修改文件按原字节写入。
-7. 输出竖排备份（如 `work/vXX-cn-vertical.epub`）。
+## 横排与样式（按任务选择）
 
-## 横排转换（make_horizontal*.py）
+- 优先保留本系列或用户指定样式；没有基线时选普通中文横排样式。行距 1.3、首行 2em 和分隔符左边距 3em 只是一个项目的可选起点，不是轻小说通则。
+- 先分析正文实际引用的 CSS、选择器和级联；`vrtl→hltr` 只适用于使用这些类的模板。其他 EPUB 可用自身类或 `writing-mode` 配置，不能只替换类名判为横排成功。
+- 样式限定在正文，标题、目录、插图、脚注和奥付分别处理。自建时例如：
 
-- 目标：与既有中文版样式一致（横排、行距 1.3、2em 首行缩进、◆◆◆ 左移 3em、标题样式）。
-- XHTML：`class="vrtl"`→`class="hltr"`；`xml:lang="ja"`→`"zh-CN"`；`<p>◆◆◆</p>`→`<p class="sep-break">◆◆◆</p>`。
-- CSS：先扫描各 XHTML 的 `<link>` 统计，找到正文页引用的主 CSS（各卷文件名不同），在**末尾**追加覆盖块；JEPA 系 CSS 原生支持 `.hltr`。覆盖块要点：
-  ```css
-  html.hltr, .hltr { writing-mode: horizontal-tb; }
-  .hltr body { margin-left:1%; margin-right:1%; line-height:1.3; text-align:justify; }
-  .hltr body p { text-indent:2em; line-height:1.3; margin:0.4em 0; }
-  .hltr p.font-1em30 { text-indent:0; text-align:left; font-weight:bold; font-size:1.2em;
-                       margin:2em 0 2em 1.7em; }          /* 章节标题 */
-  .hltr p.sep-break { margin-left:3em; }                   /* 场景分隔符（+2em 缩进） */
-  .hltr .start-3em, .hltr .start-2em { margin-left:0; margin-top:0; }
-  .hltr body.p-colophon p, .hltr body.p-colophon2 p { text-indent:0; }
-  ```
-- OPF：`primary-writing-mode` → horizontal-tb；spine `page-progression-direction` → ltr；`dc:language` → zh-CN（每处替换前断言出现次数=1）。
-- 说明页：横排成品把 p-caution 的「本电子书采用竖排布局。」改为「横排布局」；竖排备份保留原说明。
-- 输出：`output/vXX-cn.epub`。
-
-## 验证脚本设计（validate_*.py）
-
-- **竖排验证**（vs 日文原版）：
-  - zip 完整性 / mimetype 位置与压缩方式 / 文件清单一致；
-  - 仅"预期修改清单"文件变化、其余字节一致（含 CSS/图片/OPF/奥付）；
-  - XHTML 可解析且 p/img/a/id 结构保留（已知例外显式白名单，如外字图片移除）；
-  - nav/NCX 链接集合一致、目标与锚点存在；目录标签已中文化；
-  - 正文无假名残留（允许作者/插画师名）；抽查关键译文句。
-- **横排验证**（vs 竖排备份）：
-  - 逐文件 diff，且变化文件"只能由白名单变换得到"（vrtl→hltr、xml:lang、sep-break、CSS 追加、OPF 3 处、说明页文案）；
-  - 无 `vrtl` / `xml:lang="ja"` 残留；sep-break 计数与译文中 ◆◆◆ 数一致；
-  - 抽查段落数/图片数/链接；无假名残留。
-- **渲染抽查**：解包 → `python -m http.server <port> --directory <解包目录>` → Playwright 打开正文页截图 → 核对横排/缩进/分隔符/标题 → 关闭进程与标签页（浏览器工具不支持 file://，需用 http）。
-
-## 无原版 EPUB 时：自建 EPUB
-
-来源是 TXT/Word 等、没有可回写的原版 EPUB 时，直接构建成品 EPUB（横排中文样式）。最小结构：
-
-```
-vXX-cn.epub
-├─ mimetype                          # application/epub+zip（首个条目，STORED）
-├─ META-INF/container.xml            # 指向 OEBPS/content.opf
-└─ OEBPS/
-    ├─ content.opf                   # 元数据、manifest、spine（ltr）
-    ├─ nav.xhtml                     # EPUB3 导航（目录）
-    ├─ toc.ncx                       # 兼容旧阅读器（可选但推荐）
-    ├─ Styles/main.css               # 中文横排样式（见下）
-    ├─ Text/p-001.xhtml …            # 每章一页；<html class="hltr" xml:lang="zh-CN">
-    └─ Images/…                      # 插图（原字节）
+```css
+.p-text { writing-mode: horizontal-tb; line-height: 1.3; }
+.p-text p { text-indent: 2em; margin: 0.4em 0; }
+.p-text .chapter-title { text-indent: 0; font-size: 1.2em; }
+.p-text .sep-break { margin-left: 3em; }
+.p-text .illustration { text-indent: 0; text-align: center; }
 ```
 
-要点：
+- `h1` 或 `p` 标题均可，选择器须匹配实际模板；不要把只匹配 `p` 的规则交给 `h1` 模板。
+- 根据 EPUB 版本更新 spine 的翻页方向（横排通常 `ltr`）和必要的排版元数据；`primary-writing-mode` 是某些模板的兼容信息，可能不存在，不能硬断言必须恰好出现一次。
+- 中文正文的 `dc:language` 与内容语言一致；`dc:title` 按用户约定选择原名或中文名，不因回写/自建路径不同擅自切换。布局提示应与最终成品一致。
 
-- 正文页模板：`<body class="p-text"><div class="main"><h1 class="font-1em30">第X章 …</h1><p>…</p>…</div></body>`；段落一行一个 `<p>`；`◆◆◆` 用 `<p class="sep-break">◆◆◆</p>`；插图用 `<img>` 或 svg。
-- CSS 基线：直接把上面的中文横排覆盖块作为主样式即可（行距 1.3、2em 首行缩进、sep-break margin-left 3em、标题样式、colophon 不缩进）。
-- 目录 / NCX：与章节一一对应；标题中文化。
-- 元数据：`dc:language=zh-CN`、`page-progression-direction=ltr`、`primary-writing-mode=horizontal-tb`；`dc:title` 用中文书名（自建时无"保留日文原名"约束，除非用户另有要求）。
-- 生成方式：写一个 `build_epub.py`（生成全部 XHTML/OPF/导航后打包 zip）。"未改文件字节原样"不适用（全新构建），但要求**确定性**——同一输入重跑产出同一字节，便于版本间 diff。
-- 验证：结构合法 + 正文与译稿 md 段落映射一致 + 渲染抽查 + 无假名残留（见 qa-checklist.md）。
+## 无底本时自建 EPUB 3
 
-## 常见技术坑
+源为 TXT/DOCX 等时，可用项目构建器生成可重排 EPUB 3。结构示例（目录名并非强制）：
 
-- **分隔符**：源 XHTML 可能是 `<p>　　　　◆◆◆</p>`（带全角空格），回写后归一为 `<p>◆◆◆</p>`；横排正则要匹配归一化后的形式。
-- **外字（gaiji）**：`<img class="gaiji" ...>` 可能嵌在 ruby 内，随文本替换移除——属预期例外，图片文件仍保留在包内；验证脚本显式放行。
-- **CSS 文件名逐卷不同**（flow0001/flow0006/flow0010/flow0012…）：不要写死；先扫描正文页的 `<link>` 决定追加目标。
-- **OPF 标记写法可能因卷而异**：检查 `primary-writing-mode` / `page-progression-direction` / `dc:language` 的实际写法后再替换。
-- **压缩确定性**：重建 zip 时未改文件保持原字节；重打包前后 diff 应只出现预期文件。
-- **交付前检查**：`mimetype` 条目顺序与压缩方式、文件清单与原件一致、链接与锚点无悬空。
+```text
+book.epub
+├─ mimetype
+├─ META-INF/container.xml
+└─ EPUB/
+   ├─ package.opf
+   ├─ nav.xhtml
+   ├─ styles/main.css
+   ├─ text/chapter-001.xhtml
+   └─ images/...
+```
+
+- `mimetype` 为首个 ZIP 条目，内容严格为 `application/epub+zip`，无 BOM、换行、压缩或 ZIP extra 字段。
+- container 指向实际 OPF；OPF 声明正确版本和命名空间，包含标题、语言、唯一标识及 UTC 的 `dcterms:modified`，`unique-identifier` 对应标识元素的 ID。
+- 翻译版/新建版使用自己的标识，原版 ISBN 或标识只作来源信息，不把新文件冒充原版。小修订可保留翻译版标识；变化时更新修改时间。
+- manifest 列齐出版资源及 media-type，EPUB 3 导航项带 `properties="nav"`，spine 按真实阅读顺序引用资源；NCX 仅按兼容需求添加，不代替 EPUB 3 nav。
+- XHTML 按规范转义文本和属性，保留插图 alt、脚注与锚点关系；标题与正文映射可追踪，所有资源链接可解析。
+- 若要求确定性构建，将输入、标识、修改时间和 ZIP 时间戳明确固定为本版配置；比较 ZIP 内条目内容，不能因压缩包时间戳不同就认定正文改变。
+
+## 验证与交付
+
+- 包级：ZIP 完整性、mimetype、container/OPF 指向、元数据、manifest/spine、导航及资源链接/锚点；有 EPUBCheck 时使用，否则报告未完成该项。
+- 内容级：译稿与成品全量段落/源范围映射核对，包含标题、脚注与插图；源 EPUB 与提取结果独立抽查。数量相同不代表内容正确。
+- 差异级：回写与原版、修订与旧成品比较仅预期文件/内容变化；自建不套“原版字节一致”。语义 ruby/外字变化逐项复核。
+- 渲染级：用已有浏览器/阅读器工具检查代表性正文、目录、长标题、插图、分隔符和特殊字符；如需本地服务仅绑定回环地址，结束后关闭自己启动的进程与页面。只读任务优先已有截图或只读能力。
+- 浏览器 XHTML 预览可检查 CSS，但不能覆盖 EPUB 阅读器分页和兼容性；如未实测阅读器，不声称全平台可用。
+
+标准参考：[W3C EPUB 3.3](https://www.w3.org/TR/epub-33/)（包、元数据、导航、内容与容器规则）；标准校验工具：[EPUBCheck](https://www.w3.org/publishing/epubcheck/)。
